@@ -1,41 +1,167 @@
-# homefade: Alps RS60N11M9A0F fader + controller PCBA assembly
-# Run in FreeCAD (Macro > Macros... > Execute) from the fader-cad folder.
+# homefade: Alps RS60N11M9A0F fader + controller PCBA assembly, with colours.
+# Run in FreeCAD 1.x (Macro > Macros... > Execute) from the fader-cad folder,
+# or paste into the Python console:
+#   exec(open(r"C:\Users\<you>\Documents\fader-cad\homefade_assembly.FCMacro").read())
 # Coordinates: X along the fader (0 = 3T end), Z = 0 on the fader's mounting surface.
 # The PCB's top face sits on the fader's seating plane, 26 mm below the mounting surface.
+#
+# Colours are applied here (not taken from the STEP files), so re-running always gives
+# the same look: green soldermask, black ICs, tin/nickel metal, steel fader frame,
+# black plastic fader housings, silver motor can. Edit FADER_COLORS / PCBA_RULES to taste.
 import os
+import re
 import FreeCAD as App
 import Import
 
 here = os.path.dirname(os.path.abspath(__file__)) if "__file__" in globals() else \
     os.path.join(os.path.expanduser("~"), "Documents", "fader-cad")
-FADER = os.path.join(here, "alps_rs60n11m9_fader.step")
+FADER_FCSTD = os.path.join(here, "alps_rs60n11m9_fader.FCStd")
+FADER_STEP = os.path.join(here, "alps_rs60n11m9_fader.step")
 PCBA = os.path.join(here, "homefade-fader-pcba.step")
+OUT_FCSTD = os.path.join(here, "homefade_fader_assembly.FCStd")
+OUT_STEP = os.path.join(here, "homefade-fader-assembly.step")
+REPORT = os.path.join(here, "homefade_assembly_colours.txt")
 PCB_THICK = 1.6
 SEAT = -26.0
 
+# ---------------------------------------------------------------- palette (RGB 0..1)
+STEEL = (0.80, 0.81, 0.83)        # zinc-plated steel frame
+STEEL_DARK = (0.60, 0.61, 0.63)   # motor bracket
+CAN = (0.74, 0.75, 0.77)          # motor can
+BLACK_PLASTIC = (0.10, 0.10, 0.11)
+TIN = (0.88, 0.88, 0.86)          # tinned pins
+SOLDERMASK = (0.05, 0.36, 0.17)   # JLC green
+IC_BLACK = (0.08, 0.08, 0.09)
+NICKEL = (0.78, 0.78, 0.80)       # USB-C shell
+SWITCH = (0.18, 0.18, 0.19)
+
+FADER_COLORS = {
+    "Frame": STEEL,
+    "RailHousing": BLACK_PLASTIC,
+    "PotTerminalBlock": BLACK_PLASTIC,
+    "MotorBracket": STEEL_DARK,
+    "Motor": CAN,
+    "PulleyHousing": BLACK_PLASTIC,
+    "Lever": STEEL,
+    "Pins": TIN,
+}
+
+# PCBA overrides: regex matched against the object's label and its parents' labels
+# (KiCad names each part instance by its reference, e.g. "U1", and each model by its
+# footprint name). Anything not matched keeps the colour from the KiCad STEP.
+PCBA_RULES = [
+    (r"homefade-fader PCB|^PCB$", SOLDERMASK),
+    (r"^U1$|ESSOP-10", IC_BLACK),                  # CH224A: body black, leads tin
+    (r"^J1$|USB_C_Receptacle", NICKEL),            # USB-C receptacle
+    (r"^SW\d+$|SW_TS-1187A", SWITCH),              # BOOT / RESET
+]
+
 doc = App.newDocument("homefade_fader_assembly")
+report = []
 
 
-def import_into(path, name, placement):
-    before = set(o.Name for o in doc.Objects)
-    Import.insert(path, doc.Name)
+def paint(o, rgb):
+    vo = getattr(o, "ViewObject", None)
+    if vo is None or not hasattr(vo, "ShapeColor"):
+        return False
+    vo.ShapeColor = tuple(rgb)
+    report.append("%-40s %s" % (o.Label, rgb))
+    return True
+
+
+def new_top_objects(before):
     new = [o for o in doc.Objects if o.Name not in before]
-    part = doc.addObject("App::Part", name)
-    tops = [o for o in new if not o.InList or all(p not in new for p in o.InList)]
+    return new, [o for o in new if all(p not in new for p in o.InList)]
+
+
+# ---------------------------------------------------------------- fader
+fader = doc.addObject("App::Part", "Alps_RS60N11M9A0F")
+if os.path.exists(FADER_FCSTD):
+    # The FCStd keeps the sub-part names (Frame, Motor, ...), the STEP does not.
+    norm = lambda p: os.path.normcase(os.path.abspath(p))
+    already = [d for d in App.listDocuments().values() if d.FileName and norm(d.FileName) == norm(FADER_FCSTD)]
+    src = already[0] if already else App.openDocument(FADER_FCSTD, hidden=True)
+    for o in src.Objects:
+        if o.isDerivedFrom("Part::Feature") and not o.InList:
+            n = doc.addObject("Part::Feature", o.Name)
+            n.Label = o.Label
+            n.Shape = o.Shape.copy()
+            fader.addObject(n)
+    if not already:
+        App.closeDocument(src.Name)
+    App.setActiveDocument(doc.Name)
+else:
+    before = set(o.Name for o in doc.Objects)
+    Import.insert(FADER_STEP, doc.Name)
+    _, tops = new_top_objects(before)
     for o in tops:
-        if o is not part:
-            part.addObject(o)
-    part.Placement = placement
-    return part
+        if o is not fader:
+            fader.addObject(o)
 
-
-fader = import_into(FADER, "Alps_RS60N11M9A0F", App.Placement())
-pcba = import_into(PCBA, "homefade_PCBA",
-                   App.Placement(App.Vector(0, 0, SEAT - PCB_THICK), App.Rotation()))
-doc.recompute()
-doc.saveAs(os.path.join(here, "homefade_fader_assembly.FCStd"))
+# ---------------------------------------------------------------- PCBA
+pcba = doc.addObject("App::Part", "homefade_PCBA")
+before = set(o.Name for o in doc.Objects)
 if App.GuiUp:
+    import ImportGui
+    try:  # plain features (no App::Link groups) so each part can be recoloured
+        ImportGui.insert(PCBA, doc.Name, merge=False, useLinkGroup=False)
+    except TypeError:
+        ImportGui.insert(PCBA, doc.Name)
+else:
+    Import.insert(PCBA, doc.Name)
+new, tops = new_top_objects(before)
+for o in tops:
+    if o is not pcba:
+        pcba.addObject(o)
+pcba.Placement = App.Placement(App.Vector(0, 0, SEAT - PCB_THICK), App.Rotation())
+doc.recompute()
+
+# ---------------------------------------------------------------- colours
+if App.GuiUp:
+    report.append("# fader")
+    for o in fader.Group:
+        rgb = FADER_COLORS.get(o.Label) or FADER_COLORS.get(o.Name)
+        if rgb:
+            paint(o, rgb)
+    report.append("# PCBA overrides")
+    groups = {}
+    for o in new:
+        if not o.isDerivedFrom("Part::Feature") or o.isDerivedFrom("Part::Part2DObject"):
+            continue
+        names = [o.Label] + [p.Label for p in o.InListRecursive if p is not pcba]
+        for i, (pat, rgb) in enumerate(PCBA_RULES):
+            if any(re.search(pat, n) for n in names):
+                key = (i, o.InList[0].Name if o.InList else o.Name)
+                groups.setdefault(key, []).append(o)
+                break
+    for (i, _), objs in groups.items():
+        rgb = PCBA_RULES[i][1]
+        if rgb is IC_BLACK and len(objs) > 1:
+            # multi-solid IC model: the biggest solid is the body, the rest are leads
+            body = max(objs, key=lambda o: o.Shape.Volume)
+            for o in objs:
+                paint(o, IC_BLACK if o is body else TIN)
+        else:
+            for o in objs:
+                paint(o, rgb)
+    report.append("# all PCBA features (label <- parents)")
+    for o in new:
+        if o.isDerivedFrom("Part::Feature"):
+            report.append("  %s <- %s" % (o.Label, [p.Label for p in o.InList]))
+
+doc.recompute()
+doc.saveAs(OUT_FCSTD)
+if App.GuiUp:
+    try:  # combined STEP with colours, for other CAD tools
+        ImportGui.export([fader, pcba], OUT_STEP)
+    except Exception as e:
+        report.append("STEP export failed: %s" % e)
     import FreeCADGui as Gui
     Gui.activeDocument().activeView().viewIsometric()
     Gui.SendMsgToActiveView("ViewFit")
-print("homefade assembly saved")
+try:
+    with open(REPORT, "w") as f:
+        f.write("\n".join(report) + "\n")
+except OSError:
+    pass
+print("homefade assembly saved to", OUT_FCSTD)

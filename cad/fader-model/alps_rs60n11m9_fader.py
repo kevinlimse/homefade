@@ -175,10 +175,10 @@ def build(p=P):
 
 
 COLORS = {
-    "Frame": (0.78, 0.78, 0.80), "RailHousing": (0.15, 0.15, 0.15),
-    "PotTerminalBlock": (0.12, 0.12, 0.12), "MotorBracket": (0.12, 0.12, 0.12),
+    "Frame": (0.80, 0.81, 0.83), "RailHousing": (0.15, 0.15, 0.15),
+    "PotTerminalBlock": (0.12, 0.12, 0.12), "MotorBracket": (0.60, 0.61, 0.63),
     "Motor": (0.72, 0.72, 0.74), "PulleyHousing": (0.15, 0.15, 0.15),
-    "Lever": (0.85, 0.85, 0.87), "Pins": (0.85, 0.70, 0.35),
+    "Lever": (0.80, 0.81, 0.83), "Pins": (0.88, 0.88, 0.86),
 }
 
 if __name__ in ("__main__", "alps_rs60n11m9_fader") or BACKEND == "freecad":
@@ -199,7 +199,12 @@ if __name__ in ("__main__", "alps_rs60n11m9_fader") or BACKEND == "freecad":
             if App.GuiUp:
                 o.ViewObject.ShapeColor = COLORS[name]
         doc.recompute()
-        Part.export(objs, os.path.join(here, "alps_rs60n11m9_fader.step"))
+        step = os.path.join(here, "alps_rs60n11m9_fader.step")
+        if App.GuiUp:  # ImportGui keeps the colours in the STEP
+            import ImportGui
+            ImportGui.export(objs, step)
+        else:
+            Part.export(objs, step)
         doc.saveAs(os.path.join(here, "alps_rs60n11m9_fader.FCStd"))
         if App.GuiUp:
             import FreeCADGui as Gui
