@@ -1,0 +1,41 @@
+# homefade: Alps RS60N11M9A0F fader + controller PCBA assembly
+# Run in FreeCAD (Macro > Macros... > Execute) from the fader-cad folder.
+# Coordinates: X along the fader (0 = 3T end), Z = 0 on the fader's mounting surface.
+# The PCB's top face sits on the fader's seating plane, 26 mm below the mounting surface.
+import os
+import FreeCAD as App
+import Import
+
+here = os.path.dirname(os.path.abspath(__file__)) if "__file__" in globals() else \
+    os.path.join(os.path.expanduser("~"), "Documents", "fader-cad")
+FADER = os.path.join(here, "alps_rs60n11m9_fader.step")
+PCBA = os.path.join(here, "homefade-fader-pcba.step")
+PCB_THICK = 1.6
+SEAT = -26.0
+
+doc = App.newDocument("homefade_fader_assembly")
+
+
+def import_into(path, name, placement):
+    before = set(o.Name for o in doc.Objects)
+    Import.insert(path, doc.Name)
+    new = [o for o in doc.Objects if o.Name not in before]
+    part = doc.addObject("App::Part", name)
+    tops = [o for o in new if not o.InList or all(p not in new for p in o.InList)]
+    for o in tops:
+        if o is not part:
+            part.addObject(o)
+    part.Placement = placement
+    return part
+
+
+fader = import_into(FADER, "Alps_RS60N11M9A0F", App.Placement())
+pcba = import_into(PCBA, "homefade_PCBA",
+                   App.Placement(App.Vector(0, 0, SEAT - PCB_THICK), App.Rotation()))
+doc.recompute()
+doc.saveAs(os.path.join(here, "homefade_fader_assembly.FCStd"))
+if App.GuiUp:
+    import FreeCADGui as Gui
+    Gui.activeDocument().activeView().viewIsometric()
+    Gui.SendMsgToActiveView("ViewFit")
+print("homefade assembly saved")

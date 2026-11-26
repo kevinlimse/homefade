@@ -1,0 +1,135 @@
+# Alps RS60N11M9A0F motorized fader - FreeCAD model
+# Built from the Alps Alpine product page drawings:
+#   https://tech.alpsalpine.com/e/products/detail/RS60N11M9A0F/
+# X along travel (0 = 3T end), Y across width (0 = centreline),
+# Z = 0 on the MOUNTING SURFACE (top face of the frame), +Z toward the knob.
+# [DS] = from datasheet drawing, [EST] = estimated from photo/proportions.
+import os
+import FreeCAD as App
+import Part
+
+P = dict(
+    L_total=106.5,          # [DS] 54 + 52.5
+    W_frame=18.0,           # [DS]
+    x_ref=54.0,             # [DS] datum 54 from 3T end
+    t_frame=0.8,            # [EST]
+    flange_depth=4.0,       # [EST]
+    mount_pitch=80.0,       # [DS] 2-M3, 80 +/-0.3
+    mount_d=2.5,            # M3 tap drill
+    travel=60.0,            # [DS]
+    slot_w=1.8,             # [EST]
+    lever_pos=30.0,         # 0..60 mm
+    lever_top_z=8.2,        # [DS] 8.2 +/-0.5
+    lever_bar_w=18.5,       # [DS]
+    lever_bar_h=4.0,        # [DS]
+    lever_t=1.2,            # [DS] 1.2 +0.1
+    lever_hole_pitch=14.5,  # [DS]
+    lever_hole_d=2.0,       # [DS]
+    lever_stem_w=8.0,       # [DS]
+    seat_z=-26.0,           # [DS] PCB seating plane
+    pin_len=3.5,            # [EST]
+    rail_w=14.0,            # [EST]
+    rail_bottom_z=-8.0,     # [EST]
+    pot_pin_x=54.0 - 43.65, # [DS] pins 1,T,3,2
+    pot_pin_pitch=3.75,     # [DS]
+    lug_x=54.0 - 43.65 + 7.0,  # [DS]
+    lug_y=5.625,            # [DS]
+    pin_hole_d=1.5,         # [DS]
+    motor_pin_x=54.0 + 9.55,   # [DS]
+    motor_pin_dy=4.0,       # [DS] A/B 8 apart
+    motor_d=12.0,           # [EST]
+    motor_x0=66.0,          # [EST]
+    motor_x1=92.0,          # [EST]
+    motor_cz=-15.0,         # [EST]
+)
+P["travel_x0"] = P["x_ref"] - P["travel"] / 2
+P["mount_x"] = (P["x_ref"] - P["mount_pitch"] / 2, P["x_ref"] + P["mount_pitch"] / 2)
+
+
+def box(x0, x1, y0, y1, z0, z1):
+    return Part.makeBox(x1 - x0, y1 - y0, z1 - z0, App.Vector(x0, y0, z0))
+
+
+def cyl(d, p0, p1):
+    a = App.Vector(*p0)
+    v = App.Vector(*p1) - a
+    return Part.makeCylinder(d / 2, v.Length, a, v)
+
+
+def build(p=P):
+    parts = {}
+    L, W, t = p["L_total"], p["W_frame"], p["t_frame"]
+    hw = W / 2
+    frame = box(0, L, -hw, hw, -t, 0)
+    frame = frame.fuse(box(0, L, -hw, -hw + t, -p["flange_depth"], 0))
+    frame = frame.fuse(box(0, L, hw - t, hw, -p["flange_depth"], 0))
+    sx0 = p["travel_x0"] - p["lever_t"] / 2 - 0.5
+    sx1 = p["travel_x0"] + p["travel"] + p["lever_t"] / 2 + 0.5
+    frame = frame.cut(box(sx0, sx1, -p["slot_w"] / 2, p["slot_w"] / 2, -t - 1, 1))
+    for mx in p["mount_x"]:
+        frame = frame.cut(cyl(p["mount_d"], (mx, 0, -t - 1), (mx, 0, 1)))
+    parts["Frame"] = frame.removeSplitter()
+
+    rw = p["rail_w"] / 2
+    parts["RailHousing"] = box(2.0, L - 2.0, -rw, rw, p["rail_bottom_z"], -t)
+    parts["PotTerminalBlock"] = box(6.0, 20.5, -8.0, 8.0, p["seat_z"], p["rail_bottom_z"])
+    parts["MotorBracket"] = box(p["motor_pin_x"] - 3.0, p["motor_x0"], -7.0, 7.0,
+                                p["seat_z"], p["rail_bottom_z"])
+    parts["Motor"] = cyl(p["motor_d"], (p["motor_x0"], 0, p["motor_cz"]),
+                         (p["motor_x1"], 0, p["motor_cz"]))
+    parts["PulleyHousing"] = box(p["motor_x1"], L - 2.0, -8.0, 8.0, -20.0, p["rail_bottom_z"])
+
+    cx = p["travel_x0"] + p["lever_pos"]
+    lt = p["lever_t"] / 2
+    ztop = p["lever_top_z"]
+    zbar = ztop - p["lever_bar_h"]
+    lever = box(cx - p["lever_bar_w"] / 2, cx + p["lever_bar_w"] / 2, -lt, lt, zbar, ztop)
+    lever = lever.fuse(box(cx - p["lever_stem_w"] / 2, cx + p["lever_stem_w"] / 2,
+                           -lt, lt, p["rail_bottom_z"] + 1, zbar))
+    hz = zbar + p["lever_bar_h"] / 2
+    for s in (-1, 1):
+        hx = cx + s * p["lever_hole_pitch"] / 2
+        lever = lever.cut(cyl(p["lever_hole_d"], (hx, -1, hz), (hx, 1, hz)))
+    parts["Lever"] = lever.removeSplitter()
+
+    zb = p["seat_z"] - p["pin_len"]
+    pins = []
+    for i in range(4):
+        y = (1.5 - i) * p["pot_pin_pitch"]
+        pins.append(cyl(p["pin_hole_d"] - 0.5, (p["pot_pin_x"], y, zb), (p["pot_pin_x"], y, p["seat_z"])))
+    for s in (-1, 1):
+        pins.append(box(p["lug_x"] - 0.25, p["lug_x"] + 0.25, s * p["lug_y"] - 0.75, s * p["lug_y"] + 0.75,
+                        zb, p["seat_z"]))
+    for s in (1, -1):
+        y = s * p["motor_pin_dy"]
+        pins.append(cyl(p["pin_hole_d"] - 0.5, (p["motor_pin_x"], y, zb), (p["motor_pin_x"], y, p["seat_z"])))
+    parts["Pins"] = Part.makeCompound(pins)
+    return parts
+
+
+COLORS = {
+    "Frame": (0.78, 0.78, 0.80), "RailHousing": (0.15, 0.15, 0.15),
+    "PotTerminalBlock": (0.12, 0.12, 0.12), "MotorBracket": (0.12, 0.12, 0.12),
+    "Motor": (0.72, 0.72, 0.74), "PulleyHousing": (0.15, 0.15, 0.15),
+    "Lever": (0.85, 0.85, 0.87), "Pins": (0.85, 0.70, 0.35),
+}
+
+out_dir = os.path.join(os.path.expanduser("~"), "Documents", "fader-cad")
+os.makedirs(out_dir, exist_ok=True)
+doc = App.newDocument("RS60N11M9")
+objs = []
+for name, shp in build().items():
+    o = doc.addObject("Part::Feature", name)
+    o.Shape = shp
+    objs.append(o)
+    if App.GuiUp:
+        o.ViewObject.ShapeColor = COLORS[name]
+    App.Console.PrintMessage("%-16s valid=%s vol=%.1f\n" % (name, shp.isValid(), shp.Volume))
+doc.recompute()
+Part.export(objs, os.path.join(out_dir, "alps_rs60n11m9_fader.step"))
+doc.saveAs(os.path.join(out_dir, "alps_rs60n11m9_fader.FCStd"))
+App.Console.PrintMessage("Saved to %s\n" % out_dir)
+if App.GuiUp:
+    import FreeCADGui as Gui
+    Gui.activeDocument().activeView().viewIsometric()
+    Gui.SendMsgToActiveView("ViewFit")

@@ -1,0 +1,286 @@
+# homefade motorised fader -> Home Assistant (one file per board)
+# Board: homefade fader controller v1.0 (ESP32-S3-MINI-1, TB6612FNG, CH224K @ 9 V)
+#
+# Two-way sync with one HA light:
+#   * HA changes brightness (or colour temp)  -> motor drives the fader there
+#   * you touch + move the fader              -> HA light follows (live, ~7 updates/s)
+#
+# HA side: Settings > Devices > ESPHome > this device > Configure >
+#          tick "Allow the device to perform Home Assistant actions".
+#
+# Copy this file per fader and change the substitutions.
+
+substitutions:
+  name: homefade-fader-1
+  friendly_name: Fader 1
+  light_entity: light.living_room
+  # what the fader controls: brightness (0-255) or colour temperature (Kelvin)
+  ha_attribute: brightness         # or: color_temp_kelvin
+  attr_min: "0"                    # 2700 for colour temp
+  attr_max: "255"                  # 6500 for colour temp
+  zero_turns_off: "true"           # "false" for colour temp
+  # mechanics / tuning
+  motor_invert: "false"            # flip if the fader runs away from the target
+  max_duty: "1.0"                  # 1.0 at 9 V PD, 0.83 if you fit R3=24k (12 V)
+  min_duty: "0.35"                 # smallest duty that still moves the cap
+  kp: "6.0"                        # proportional gain (duty per unit error)
+  deadband: "0.006"                # stop when within 0.6 % of travel
+  adc_bottom: "0.04"               # wiper volts at the "0" end (measure: Fader raw)
+  adc_top: "2.98"                  # wiper volts at the "max" end
+  touch_threshold: "60000"         # see "Fader touch raw" with setup_mode: true
+
+esphome:
+  name: ${name}
+  friendly_name: ${friendly_name}
+
+esp32:
+  board: esp32-s3-devkitc-1
+  variant: esp32s3
+  flash_size: 8MB
+  framework:
+    type: esp-idf
+
+logger:
+  hardware_uart: USB_SERIAL_JTAG
+
+api:
+  encryption:
+    key: !secret api_key
+
+ota:
+  - platform: esphome
+
+wifi:
+  ssid: !secret wifi_ssid
+  password: !secret wifi_password
+  ap:
+    ssid: ${name}
+
+captive_portal:
+
+status_led:
+  pin: GPIO10
+
+globals:
+  - id: target
+    type: float
+    initial_value: "0.0"
+  - id: moving
+    type: bool
+    initial_value: "false"
+  - id: move_started
+    type: uint32_t
+    initial_value: "0"
+  - id: last_sent
+    type: float
+    initial_value: "-1.0"
+  - id: last_send_ms
+    type: uint32_t
+    initial_value: "0"
+  - id: touch_released_ms
+    type: uint32_t
+    initial_value: "0"
+  - id: cur_pos
+    type: float
+    initial_value: "0.0"
+
+# ---------------------------------------------------------------- hardware
+output:
+  - platform: ledc
+    id: motor_pwm
+    pin: GPIO4
+    frequency: 20000Hz       # above hearing range
+  - platform: gpio
+    id: motor_in1
+    pin: GPIO5
+  - platform: gpio
+    id: motor_in2
+    pin: GPIO6
+  - platform: gpio
+    id: motor_stby
+    pin: GPIO7
+
+esp32_touch:
+  setup_mode: false          # true = log raw touch values to pick touch_threshold
+
+binary_sensor:
+  - platform: esp32_touch
+    id: fader_touch
+    name: Fader touched
+    pin: GPIO2
+    threshold: ${touch_threshold}
+    filters:
+      - delayed_off: 150ms
+    on_press:
+      - lambda: |-
+          id(moving) = false;          // hand wins over motor, immediately
+          id(motor_stby).turn_off();
+          id(motor_pwm).set_level(0);
+    on_release:
+      - lambda: id(touch_released_ms) = millis();
+      - script.execute:
+          id: send_to_ha
+          value: !lambda return id(cur_pos);
+
+  - platform: gpio
+    id: pd_ok
+    name: USB-PD 9V OK
+    pin:
+      number: GPIO8
+      inverted: true                   # CH224K PG is active-low, open drain
+    entity_category: diagnostic
+
+  - platform: homeassistant
+    id: ha_light_on
+    entity_id: ${light_entity}
+    on_release:                        # light turned off in HA -> fader to bottom
+      - lambda: |-
+          if (${zero_turns_off}) { id(goto_pos).execute(0.0f); }
+
+sensor:
+  - platform: adc
+    id: fader_raw
+    name: Fader raw
+    pin: GPIO1
+    attenuation: 12db
+    update_interval: 10ms
+    internal: true
+    filters:
+      - median:
+          window_size: 3
+          send_every: 1
+
+  - platform: template
+    id: fader_pos
+    name: Fader position
+    unit_of_measurement: "%"
+    accuracy_decimals: 1
+    update_interval: never
+    filters:
+      - multiply: 100
+      - delta: 0.5
+    # raw (0..1) value lives in the lambda below, published by the control loop
+
+  - platform: adc
+    id: vbus
+    name: Supply voltage
+    pin: GPIO9
+    attenuation: 12db
+    update_interval: 30s
+    filters:
+      - multiply: 11.0                 # 100k / 10k divider
+    entity_category: diagnostic
+
+  - platform: homeassistant
+    id: ha_value
+    entity_id: ${light_entity}
+    attribute: ${ha_attribute}
+    on_value:
+      - lambda: |-
+          if (isnan(x)) return;
+          // ignore HA echoing our own change, and anything while a hand is on the knob
+          if (id(fader_touch).state || millis() - id(touch_released_ms) < 1500) return;
+          float p = (x - ${attr_min}) / (float)(${attr_max} - ${attr_min});
+          id(goto_pos).execute(p);
+
+  - platform: wifi_signal
+    name: WiFi signal
+    update_interval: 60s
+
+number:
+  - platform: template
+    name: Fader target
+    id: fader_target
+    min_value: 0
+    max_value: 100
+    step: 1
+    unit_of_measurement: "%"
+    optimistic: true
+    set_action:
+      - script.execute:
+          id: goto_pos
+          p: !lambda return x / 100.0f;
+
+# ---------------------------------------------------------------- logic
+script:
+  - id: goto_pos
+    mode: restart
+    parameters:
+      p: float
+    then:
+      - lambda: |-
+          if (p < 0) p = 0; if (p > 1) p = 1;
+          id(target) = p;
+          id(moving) = true;
+          id(move_started) = millis();
+
+  - id: send_to_ha
+    mode: queued
+    max_runs: 2
+    parameters:
+      value: float
+    then:
+      - lambda: |-
+          id(last_sent) = value;
+          id(last_send_ms) = millis();
+      - if:
+          condition:
+            lambda: return ${zero_turns_off} && value < 0.01f;
+          then:
+            - homeassistant.action:
+                action: light.turn_off
+                data:
+                  entity_id: ${light_entity}
+          else:
+            - homeassistant.action:
+                action: light.turn_on
+                data:
+                  entity_id: ${light_entity}
+                data_template:
+                  ${ha_attribute}: "{{ v | int }}"
+                variables:
+                  v: !lambda |-
+                    float v = ${attr_min} + value * (${attr_max} - ${attr_min});
+                    if (${zero_turns_off} && v < 1) v = 1;
+                    return (int) roundf(v);
+
+interval:
+  - interval: 10ms
+    then:
+      - lambda: |-
+          // ---- position, 0..1
+          float v = id(fader_raw).state;
+          if (isnan(v)) return;
+          float pos = (v - ${adc_bottom}) / (${adc_top} - ${adc_bottom});
+          if (pos < 0) pos = 0; if (pos > 1) pos = 1;
+          id(cur_pos) = pos;
+          static uint32_t last_pub = 0;
+          if (millis() - last_pub > 100) { id(fader_pos).publish_state(pos); last_pub = millis(); }
+
+          // ---- hand on the knob: stream to HA, no motor
+          if (id(fader_touch).state) {
+            if (fabsf(pos - id(last_sent)) > 0.01f && millis() - id(last_send_ms) > 150)
+              id(send_to_ha).execute(pos);
+            return;
+          }
+
+          // ---- motor control (P controller with minimum duty + timeout)
+          if (!id(moving)) return;
+          float err = id(target) - pos;
+          bool timeout = millis() - id(move_started) > 1500;
+          if (fabsf(err) < ${deadband} || timeout || !id(pd_ok).state) {
+            id(moving) = false;
+            id(motor_pwm).set_level(0);
+            id(motor_in1).turn_on(); id(motor_in2).turn_on();   // short brake
+            id(motor_stby).turn_off();
+            id(last_sent) = pos;                                  // don't echo back
+            return;
+          }
+          bool fwd = (err > 0) != ${motor_invert};
+          float duty = ${kp} * fabsf(err);
+          if (duty < ${min_duty}) duty = ${min_duty};
+          if (duty > ${max_duty}) duty = ${max_duty};
+          id(motor_stby).turn_on();
+          if (fwd) { id(motor_in1).turn_on();  id(motor_in2).turn_off(); }
+          else     { id(motor_in1).turn_off(); id(motor_in2).turn_on();  }
+          id(motor_pwm).set_level(duty);

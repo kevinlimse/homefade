@@ -1,0 +1,24 @@
+# KiCad backups / caches
+*-backups/
+*.kicad_sch-bak
+*.kicad_pcb-bak
+*.bak
+*-bak
+_autosave-*
+\#auto_saved_files#
+fp-info-cache
+*.lck
+~*.lck
+# FreeCAD backups
+*.FCStd1
+*.FCBak
+*.FCStd.bak
+# Python / ESPHome
+__pycache__/
+*.pyc
+.esphome/
+secrets.yaml
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini

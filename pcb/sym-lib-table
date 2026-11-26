@@ -1,0 +1,3 @@
+(sym_lib_table
+  (lib (name "homefade")(type "KiCad")(uri "${KIPRJMOD}/homefade.kicad_sym")(options "")(descr "project symbols"))
+)
