@@ -73,3 +73,21 @@ b = b.replace('(at 0 -4) (layer "F.SilkS")', '(at 13 -10)')
 open(os.path.join(OUT, "Alps_RS60N11M9_Fader.kicad_mod"), "w").write(
     fp("Alps_RS60N11M9_Fader", b, "Alps RS60N11M9A0F 60mm motor fader, PCB side"))
 print("ok", os.listdir(OUT))
+
+
+# OPSCO SK6812SIDE-A side-view addressable RGB LED, 4.0 x 2.0 x 1.6 mm. [EST] land pattern:
+# the datasheet gives it only as a drawing (4 terminals 0.6 wide at 1.15 pitch, 0.75 deep, at the
+# rear). Light exits the long face at local -Y; place it flush with the board edge.
+# Pins: 1 DIN, 2 VDD, 3 DOUT, 4 GND. CHECK AGAINST JLC'S FOOTPRINT PREVIEW BEFORE ORDERING.
+b = ""
+for i in range(4):
+    x = -1.725 + 1.15 * i
+    b += f'  (pad "{i+1}" smd roundrect (at {x:.3f} 0.55) (size 0.7 1.1) (layers "F.Cu" "F.Paste" "F.Mask") (roundrect_rratio 0.15))\n'
+b += rect(-2.0, -0.8, 2.0, 0.8, "F.Fab", 0.1)
+b += line(-2.0, -0.6, 2.0, -0.6, "F.Fab", 0.1)
+b += rect(-2.15, -0.95, 2.15, 1.15, "F.CrtYd", 0.05)
+b += line(-2.1, -0.9, 2.1, -0.9, "F.SilkS")
+b += '  (fp_circle (center -1.725 1.45) (end -1.625 1.45) (stroke (width 0.2) (type solid)) (fill solid) (layer "F.SilkS"))\n'
+open(os.path.join(OUT, "LED_SK6812SIDE-A_4.0x1.6mm.kicad_mod"), "w").write(
+    fp("LED_SK6812SIDE-A_4.0x1.6mm", b, "OPSCO SK6812SIDE-A side-view RGB LED, light exits at -Y").replace(
+        '(at 0 -4) (layer "F.SilkS")', '(at 0 -2) (layer "F.SilkS") hide'))

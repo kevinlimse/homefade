@@ -12,7 +12,7 @@ def find(n, key):
 routes = find(t, 'routes')[0]
 U = 10000.0  # 0.1 um units -> mm
 mm = pcbnew.FromMM
-layers = {'F.Cu': pcbnew.F_Cu, 'B.Cu': pcbnew.B_Cu}
+layers = {'F.Cu': pcbnew.F_Cu, 'In1.Cu': pcbnew.In1_Cu, 'In2.Cu': pcbnew.In2_Cu, 'B.Cu': pcbnew.B_Cu}
 nets = b.GetNetsByName()
 nt = nv = 0
 for net in find(find(routes, 'network_out')[0], 'net'):

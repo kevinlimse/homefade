@@ -12,7 +12,9 @@ STD = "/usr/share/kicad/footprints"
 
 board = pcbnew.BOARD()
 ds = board.GetDesignSettings()
-ds.SetCopperLayerCount(2)
+board.SetCopperLayerCount(4)  # 4 layers: In1 = solid GND plane, In2 = signals + GND pour
+ds.SetCopperLayerCount(4)
+board.SetLayerType(pcbnew.In1_Cu, pcbnew.LT_POWER)  # exported to Freerouting as a plane: never routed
 ds.m_TrackMinWidth = mm(0.15)
 ds.m_MinClearance = mm(0.15)
 ds.m_ViasMinSize = mm(0.5)
@@ -39,7 +41,7 @@ pwr = pcbnew.NETCLASS("Power")
 pwr.SetClearance(mm(0.18)); pwr.SetTrackWidth(mm(0.6))
 pwr.SetViaDiameter(mm(0.8)); pwr.SetViaDrill(mm(0.4))
 ds.m_NetSettings.m_NetClasses["Power"] = pwr
-POWER_NETS = ("VBUS", "MOTOR_A", "MOTOR_B", "SW", "+3V3", "GND")
+POWER_NETS = ("VBUS", "MOTOR_A", "MOTOR_B", "SW", "+3V3", "GND", "VLED", "SW_LED")
 
 # outline
 x0, x1, hw = D.BOARD_X0, D.BOARD_X1, D.BOARD_HW
@@ -110,15 +112,15 @@ ux = pcbnew.ToMM(u4.GetPosition().x) - OX
 ka = pcbnew.ZONE(board)
 ka.SetIsRuleArea(True); ka.SetDoNotAllowCopperPour(True); ka.SetDoNotAllowTracks(True)
 ka.SetDoNotAllowVias(True); ka.SetDoNotAllowPads(False); ka.SetDoNotAllowFootprints(False)
-ls = pcbnew.LSET(); ls.AddLayer(pcbnew.F_Cu); ls.AddLayer(pcbnew.B_Cu); ka.SetLayerSet(ls)
+ls = pcbnew.LSET.AllCuMask(4); ka.SetLayerSet(ls)
 o = ka.Outline(); o.NewOutline()
 for xy in ((ux + 7.8, -hw - 1), (x1 + 1, -hw - 1), (x1 + 1, hw + 1), (ux + 7.8, hw + 1)):
     o.Append(P(*xy))
 ka.SetZoneName("ANTENNA_KEEPOUT")
 board.Add(ka)
 
-# GND pours both layers
-for layer in (pcbnew.F_Cu, pcbnew.B_Cu):
+# GND pours on every layer (In1 is a plane: nothing else on it)
+for layer in (pcbnew.F_Cu, pcbnew.In1_Cu, pcbnew.In2_Cu, pcbnew.B_Cu):
     z = pcbnew.ZONE(board)
     z.SetLayer(layer); z.SetNet(net("GND"))
     o = z.Outline(); o.NewOutline()
@@ -136,7 +138,7 @@ def text(s, x, y, size=0.9, layer=pcbnew.B_SilkS, mirror=True):
     t.SetLayer(layer); t.SetTextSize(pcbnew.VECTOR2I(mm(size), mm(size)))
     t.SetTextThickness(mm(0.15)); t.SetMirrored(mirror); board.Add(t)
 
-text("homefade fader v1.0  ·  Alps RS60N11M9  ·  USB-C PD 9V", 50, -6.5)
+text("homefade fader v1.1  ·  Alps RS60N11M9  ·  USB-C PD 9V", 50, -6.5)
 text("Fader mounts on the OTHER side", 50, 6.5)
 text("1 board = 1 fader. Chain VBUS/GND via J2 for 2-3 boards.", 50, 0, 0.8)
 

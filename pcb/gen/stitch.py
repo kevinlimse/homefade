@@ -22,7 +22,7 @@ def ok(v, skip=None):
             continue
         if it.GetNetCode() == gnd.GetNetCode() and it.Type() != pcbnew.PCB_PAD_T:
             continue
-        for L in (pcbnew.F_Cu, pcbnew.B_Cu):
+        for L in (pcbnew.F_Cu, pcbnew.In2_Cu, pcbnew.B_Cu):  # In1 is the GND plane
             if it.IsOnLayer(L) and vs.Collide(it.GetEffectiveShape(L), CLR + (0 if it.GetNetCode() != gnd.GetNetCode() else mm(0.2))):
                 return False
     # also holes (THT pads / NPTH)

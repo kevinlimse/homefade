@@ -14,7 +14,7 @@ A wall-mounted **motorized fader for Home Assistant**. It controls light brightn
 | MCU | **ESP32-S3-MINI-1-N8** | Wi-Fi, native USB, capacitive touch for the fader's touch track |
 | Motor driver | **TB6612FNG** (both bridges paralleled) | |
 | Power | **CH224A** USB-C PD sink, requests **9 V** | TPS563201 buck to 3.3 V |
-| PCB | 18.0 × 120 mm, 2-layer, one board per fader | ~US$4.80/board in LCSC parts |
+| PCB | 18.0 × 120 mm, 4-layer, one board per fader, v1.1 with 10-LED side-firing position bar (GPIO17) | ~US$5.70/board in LCSC parts |
 
 ## What's in this folder
 

@@ -39,8 +39,8 @@ def items():
 
 
 def unconnected_pads():
-    pcbnew.WriteDRCReport(b, '/tmp/fin_drc.rpt', pcbnew.EDA_UNITS_MILLIMETRES, True)
-    txt = open('/tmp/fin_drc.rpt').read()
+    pcbnew.WriteDRCReport(b, pcb + '.fin.rpt', pcbnew.EDA_UNITS_MILLIMETRES, True)
+    txt = open(pcb + '.fin.rpt').read()
     out = []
     for blk in txt.split('[unconnected_items]')[1:]:
         lines = blk.split('\n')[1:5]

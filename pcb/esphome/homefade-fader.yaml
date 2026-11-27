@@ -1,5 +1,6 @@
 # homefade motorised fader -> Home Assistant (one file per board)
-# Board: homefade fader controller v1.0 (ESP32-S3-MINI-1, TB6612FNG, CH224K @ 9 V)
+# Board: homefade fader controller v1.1 (ESP32-S3-MINI-1, TB6612FNG, CH224A @ 9 V,
+#        10x SK6812SIDE-A position LED bar on GPIO17)
 #
 # Two-way sync with one HA light:
 #   * HA changes brightness (or colour temp)  -> motor drives the fader there
@@ -28,10 +29,23 @@ substitutions:
   adc_bottom: "0.04"               # wiper volts at the "0" end (measure: Fader raw)
   adc_top: "2.98"                  # wiper volts at the "max" end
   touch_threshold: "60000"         # see "Fader touch raw" with setup_mode: true
+  # position LED bar (10 side-firing RGB LEDs, one per 10 % of travel)
+  led_bar_reverse: "false"         # "true" if the bar fills from the wrong end
 
 esphome:
   name: ${name}
   friendly_name: ${friendly_name}
+  on_boot:
+    priority: -100
+    then:
+      - if:                              # first boot only: green = filled, red = empty
+          condition:
+            lambda: return !id(bar_colours_set);
+          then:
+            - light.turn_on: {id: bar_fill_colour, red: 0%, green: 100%, blue: 0%, brightness: 60%}
+            - light.turn_on: {id: bar_empty_colour, red: 100%, green: 0%, blue: 0%, brightness: 25%}
+            - lambda: id(bar_colours_set) = true;
+      - light.turn_on: {id: led_bar, effect: Position}
 
 esp32:
   board: esp32-s3-devkitc-1
@@ -83,6 +97,10 @@ globals:
   - id: cur_pos
     type: float
     initial_value: "0.0"
+  - id: bar_colours_set
+    type: bool
+    restore_value: true
+    initial_value: "false"
 
 # ---------------------------------------------------------------- hardware
 output:
@@ -99,6 +117,71 @@ output:
   - platform: gpio
     id: motor_stby
     pin: GPIO7
+  # dummy outputs: the two colour-picker lights below only hold a colour for the LED bar
+  - {platform: template, id: dummy_r1, type: float, write_action: [lambda: ""]}
+  - {platform: template, id: dummy_g1, type: float, write_action: [lambda: ""]}
+  - {platform: template, id: dummy_b1, type: float, write_action: [lambda: ""]}
+  - {platform: template, id: dummy_r2, type: float, write_action: [lambda: ""]}
+  - {platform: template, id: dummy_g2, type: float, write_action: [lambda: ""]}
+  - {platform: template, id: dummy_b2, type: float, write_action: [lambda: ""]}
+
+# ---------------------------------------------------------------- position LED bar
+# "Position bar" is the LEDs themselves (on/off, overall brightness, effect).
+# "Bar filled colour" / "Bar empty colour" are colour pickers in HA: their colour AND
+# brightness set the look of the part below the knob and the part above it.
+light:
+  - platform: esp32_rmt_led_strip
+    id: led_bar
+    name: Position bar
+    pin: GPIO17
+    num_leds: 10
+    chipset: SK6812
+    channel_colors: GRB
+    restore_mode: RESTORE_DEFAULT_ON
+    default_transition_length: 0s
+    on_turn_on:
+      - lambda: |-
+          if (id(led_bar).get_effect_name() == "None")
+            id(led_bar).turn_on().set_effect("Position").perform();
+    effects:
+      - addressable_lambda:
+          name: Position
+          update_interval: 30ms
+          lambda: |-
+            auto col = [](light::LightState *l) -> Color {
+              auto v = l->current_values;
+              if (!v.is_on()) return Color::BLACK;
+              float b = v.get_brightness() * 255.0f;
+              return Color(v.get_red() * b, v.get_green() * b, v.get_blue() * b);
+            };
+            Color on = col(id(bar_fill_colour)), off = col(id(bar_empty_colour));
+            const int n = it.size();
+            float lit = id(cur_pos) * n;            // e.g. 0.43 -> 4.3 LEDs
+            for (int i = 0; i < n; i++) {
+              float f = lit - i;                    // 1 = fully "filled", 0 = "empty"
+              if (f < 0) f = 0; if (f > 1) f = 1;
+              int k = ${led_bar_reverse} ? n - 1 - i : i;
+              it[k] = on * (uint8_t)(f * 255) + off * (uint8_t)((1 - f) * 255);
+            }
+      - addressable_rainbow:
+          name: Rainbow
+
+  - platform: rgb
+    id: bar_fill_colour
+    name: Bar filled colour
+    red: dummy_r1
+    green: dummy_g1
+    blue: dummy_b1
+    restore_mode: RESTORE_DEFAULT_ON
+    default_transition_length: 0s
+  - platform: rgb
+    id: bar_empty_colour
+    name: Bar empty colour
+    red: dummy_r2
+    green: dummy_g2
+    blue: dummy_b2
+    restore_mode: RESTORE_DEFAULT_ON
+    default_transition_length: 0s
 
 esp32_touch:
   setup_mode: false          # true = log raw touch values to pick touch_threshold

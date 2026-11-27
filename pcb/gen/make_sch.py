@@ -65,7 +65,9 @@ right = [(str(n), names[n], "power_in" if names[n] in ("GND", "3V3") else "bidir
 left = [(a, b, "input" if b == "EN" else t) for a, b, t in left]
 right = [(a, b, "input" if b == "EN" else t) for a, b, t in right]
 esp = box_symbol("ESP32-S3-MINI-1", left, right, w=17.78)
-CUSTOM = {"CH224A": ch224, "RS60N11M9_Fader": fader, "ESP32-S3-MINI-1": esp}
+sk = box_symbol("SK6812SIDE-A", [("1", "DIN", "input"), ("2", "VDD", "power_in")],
+                [("3", "DOUT", "output"), ("4", "GND", "power_in")], ref="D", w=10.16)
+CUSTOM = {"CH224A": ch224, "RS60N11M9_Fader": fader, "ESP32-S3-MINI-1": esp, "SK6812SIDE-A": sk}
 
 with open(os.path.join(PROJ, "homefade.kicad_sym"), "w") as f:
     f.write("(kicad_symbol_lib (version 20220914) (generator homefade_gen)\n")
@@ -113,10 +115,11 @@ for c in D.C:
 # ------------------------------------------------------------------ placement on sheet
 GROUP_TITLES = {"power": "USB-C input, USB-PD trigger (9 V), ESD", "buck": "3.3 V buck",
                 "motor": "Motor driver (TB6612FNG)",
-                "fader": "Fader: pot, touch, motor", "mcu": "ESP32-S3 + boot/reset, LED, sense"}
+                "fader": "Fader: pot, touch, motor", "mcu": "ESP32-S3 + boot/reset, LED, sense",
+                "ledbar": "Position LED bar (10x SK6812SIDE-A, 4.5 V)"}
 items = []
 ROOT = U()
-col_x = {"power": 30, "buck": 120, "motor": 200, "fader": 290, "mcu": 380}
+col_x = {"power": 30, "buck": 120, "motor": 200, "fader": 290, "mcu": 380, "ledbar": 480}
 cur_y = {g: 45 for g in col_x}
 G = lambda v: round(round(v / 2.54) * 2.54, 2)
 
@@ -172,11 +175,11 @@ for c in D.C:
 for x, y, t in notes:
     items.append(f'(text {q("Note: " + t)} (at {x} {y} 0) (effects (font (size 1.0 1.0) italic) (justify left)) (uuid {U()}))')
 
-items.append(f'(text {q("homefade fader controller v1.0 - one board per Alps RS60N11M9A0F fader. Generated from design.py; net labels carry connectivity.")} (at 20 20 0) (effects (font (size 3 3) bold) (justify left)) (uuid {U()}))')
+items.append(f'(text {q("homefade fader controller v1.1 - one board per Alps RS60N11M9A0F fader. Generated from design.py; net labels carry connectivity.")} (at 20 20 0) (effects (font (size 3 3) bold) (justify left)) (uuid {U()}))')
 
 libtxt = "\n".join("    " + sexpdata.dumps(s) for s in lib_syms.values())
 sch = (f'(kicad_sch (version 20230121) (generator eeschema)\n  (uuid {ROOT})\n  (paper "A2")\n'
-       f'  (title_block (title "homefade fader controller") (rev "1.0") (company "homefade"))\n'
+       f'  (title_block (title "homefade fader controller") (rev "1.1") (company "homefade"))\n'
        f'  (lib_symbols\n{libtxt}\n  )\n' + "\n".join("  " + i for i in items) +
        f'\n  (sheet_instances (path "/" (page "1")))\n)\n')
 open(os.path.join(PROJ, "homefade-fader.kicad_sch"), "w").write(sch)

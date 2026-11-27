@@ -23,3 +23,17 @@ for x in (-3, 3):
         sw = sw.union(cq.Workplane("XY").box(1.0, 0.7, 0.2, centered=(True, True, False)).translate((x, y, 0)))
 save(sw, "SW_TS-1187A")
 print("models ok")
+# SK6812SIDE-A side-view RGB LED: 4.0 x 1.6 footprint, 2.0 tall; light exits the +Y face
+# (model coords; footprint -Y). White body, clear lens window, 4 terminals at the rear.
+led = cq.Workplane("XY").box(4.0, 1.6, 2.0, centered=(True, True, False))
+lens = cq.Workplane("XY").box(3.0, 0.3, 1.3, centered=(True, True, False)).translate((0, 0.75, 0.35))
+term = None
+for i in range(4):
+    t = cq.Workplane("XY").box(0.6, 0.75, 0.12, centered=(True, True, False)).translate((-1.725 + 1.15 * i, -0.425, -0.02))
+    term = t if term is None else term.union(t)
+a = cq.Assembly(name="SK6812SIDE-A")
+a.add(led.cut(lens), name="body", color=cq.Color(0.93, 0.93, 0.90))
+a.add(lens, name="lens", color=cq.Color(0.85, 0.90, 1.0, 0.6))
+a.add(term, name="terminals", color=cq.Color(0.88, 0.88, 0.86))
+a.save(f"{out}/LED_SK6812SIDE-A_4.0x1.6mm.step")
+print("led model ok")
